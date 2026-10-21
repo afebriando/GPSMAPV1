@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GPS Map Camera</title>
+<style>
+:root{--bg:#f3f5f7;--surface:#fff;--text:#14202b;--muted:#5d6b78;--accent:#0f9d58;--line:#d5dbe1;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#0d1217;--surface:#17202a;--text:#eaf0f5;--muted:#93a1ae;--accent:#34c47c;--line:#2a3643}}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#0d1217;--surface:#17202a;--text:#eaf0f5;--muted:#93a1ae;--accent:#34c47c;--line:#2a3643}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:12px}
+h1{font-size:18px;margin:4px 0 10px;display:flex;align-items:center;gap:8px}
+.cam{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:3/4}
+video{width:100%;height:100%;object-fit:cover;display:block}
+.stamp{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;padding:8px;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;font-size:11px;line-height:1.35;align-items:flex-end}
+.stamp canvas{width:84px;height:84px;border-radius:8px;border:1px solid rgba(255,255,255,.5);flex:none}
+.stamp b{font-size:13px}
+.msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:#fff;background:#111;font-size:14px}
+.bar{display:flex;align-items:center;justify-content:space-around;padding:14px 0}
+.shutter{width:70px;height:70px;border-radius:50%;border:4px solid var(--accent);background:var(--surface);cursor:pointer;position:relative}
+.shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--accent)}
+.shutter:active::after{inset:10px}
+.btn{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font:inherit;cursor:pointer}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin-top:10px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}
+.grid span{color:var(--muted);font-size:12px;display:block}
+.grid div{font-weight:600;font-variant-numeric:tabular-nums}
+input[type=text],input[type=password],input[type=datetime-local]{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}
+.gal{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.gal img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;cursor:pointer}
+.small{color:var(--muted);font-size:12px}
+dialog{border:0;border-radius:14px;padding:10px;max-width:96vw;background:var(--surface);color:var(--text)}
+dialog img{max-width:100%;max-height:70vh;display:block;margin:auto;border-radius:8px}
+.flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}.flash.on{animation:fl .28s ease-out}@keyframes fl{0%{opacity:.95}100%{opacity:0}}.cam.shake{animation:sk .2s}@keyframes sk{50%{transform:scale(.985)}}
+.row{display:flex;gap:6px;margin-top:6px}.row>*{flex:1}
+</style>
+</head>
+<body>
+<main>
+<h1>📍 GPS Map Camera</h1>
+<div class="cam">
+  <video id="v" playsinline muted autoplay></video>
+  <div class="msg" id="msg">Mengaktifkan kamera…</div>
+  <div class="flash" id="flash"></div>
+  <div class="stamp" id="stamp"><canvas id="mini" width="168" height="168"></canvas><div id="stxt">Menunggu GPS…</div></div>
+</div>
+<div class="bar">
+  <button class="btn" id="flip">🔄 Balik</button>
+  <button class="shutter" id="snap" aria-label="Ambil foto"></button>
+  <label class="btn" style="cursor:pointer">🖼️ Galeri<input type="file" id="fallback" accept="image/*" capture="environment" hidden></label>
+</div>
+<div class="card">
+  <input type="text" id="note" placeholder="Catatan / nama lokasi (opsional)">
+</div>
+<div class="card">
+  <b>Ubah lokasi &amp; waktu</b>
+  <div class="row"><input type="text" id="q" placeholder="Cari nama tempat / jalan" style="flex:3"><button class="btn" id="qgo">Cari</button></div>
+  <div class="row"><input type="text" id="mlat" placeholder="Latitude" inputmode="decimal"><input type="text" id="mlon" placeholder="Longitude" inputmode="decimal"></div>
+  <input type="text" id="maddr" placeholder="Alamat / nama jalan (kosong = otomatis)" style="margin-top:6px">
+  <div class="row"><button class="btn" id="mloc">Terapkan lokasi</button><button class="btn" id="mgps">Kembali ke GPS</button></div>
+  <div class="small" style="margin-top:12px">Tanggal &amp; waktu</div>
+  <input type="datetime-local" id="mtime" step="1" style="margin-top:4px">
+  <div class="row"><button class="btn" id="mt">Terapkan waktu</button><button class="btn" id="mtreset">Waktu sekarang</button></div>
+  <div style="margin-top:12px"><label><input type="checkbox" id="snd" checked> Suara jepret</label> &nbsp; <label><input type="checkbox" id="fx" checked> Efek kilat</label></div>
+  <div style="margin-top:8px"><label><input type="checkbox" id="auto" checked> Simpan otomatis setelah jepret</label></div>
+  <p class="small" style="margin:8px 0 0">Foto yang lokasi atau waktunya diubah akan diberi keterangan “Diubah manual” pada stempel.</p>
+</div>
+<div class="card">
+  <div class="grid">
+    <div style="grid-column:1/3"><span>Alamat</span><div id="addr">–</div></div>
+    <div><span>Latitude</span><div id="lat">–</div></div>
+    <div><span>Longitude</span><div id="lon">–</div></div>
+    <div><span>Akurasi</span><div id="acc">–</div></div>
+    <div><span>Ketinggian</span><div id="alt">–</div></div>
+    <div><span>Kecepatan</span><div id="spd">–</div></div>
+    <div><span>Arah</span><div id="hdg">–</div></div>
+  </div>
+  <button class="btn" id="mapstyle" style="margin-top:10px">🛰️ Ganti gaya peta (satelit / jalan)</button>
+</div>
+<div class="card">
+  <b>Kirim ke Telegram</b>
+  <input type="password" id="tgtoken" placeholder="Token bot (dari @BotFather)" autocomplete="off" style="margin-top:8px">
+  <input type="text" id="tgchat" placeholder="Chat ID (angka, grup diawali minus)" inputmode="numeric" style="margin-top:6px">
+  <div style="margin-top:8px"><label><input type="checkbox" id="tgauto"> Kirim otomatis setelah jepret</label></div>
+  <div><label><input type="checkbox" id="tgdoc"> Kirim sebagai file (kualitas asli)</label></div>
+  <div class="row"><button class="btn" id="tgtest">Tes koneksi</button></div>
+  <p class="small" id="tgst" style="margin:8px 0 0">Token dan Chat ID hanya disimpan di browser ini.</p>
+</div>
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center"><span><b>Hasil foto</b> <span class="small" id="cnt">(0)</span></span><button class="btn" id="delall" style="padding:6px 10px;font-size:13px;color:#d93025">🗑️ Hapus semua</button></div>
+  <div class="gal" id="gal"></div>
+  <p class="small" id="hint" style="margin:8px 0 0">Ketuk foto untuk membuka, lalu tekan lama untuk menyimpan.</p>
+</div>
+<dialog id="dlg"><img id="big" alt="Foto"><div style="text-align:center;margin-top:8px"><button class="btn" id="save">💾 Simpan ke Galeri</button> <button class="btn" id="tgsend">✈️ Telegram</button> <button class="btn" id="share">Bagikan</button> <button class="btn" id="del" style="color:#d93025">🗑️ Hapus</button> <button class="btn" id="close">Tutup</button></div></dialog>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const v=$('v'),msg=$('msg');
+let facing='environment',stream=null,pos=null,track=[],photos=[];
+
+async function startCam(){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1280},height:{ideal:1706}},audio:false});
+    v.srcObject=stream;msg.style.display='none';
+  }catch(e){
+    msg.style.display='flex';
+    msg.textContent='Kamera tidak dapat diakses. Izinkan akses kamera, atau gunakan tombol Galeri untuk mengambil foto lewat aplikasi kamera ponsel.';
+  }
+}
+function dms(x,p,n){const d=x>=0?p:n;x=Math.abs(x);const g=Math.floor(x),m=Math.floor((x-g)*60),s=((x-g)*60-m)*60;return g+'°'+m+'’'+s.toFixed(1)+'”'+d}
+const R=6371000;
+function offset(a,b){const dx=(b.lon-a.lon)*Math.PI/180*R*Math.cos(a.lat*Math.PI/180),dy=(b.lat-a.lat)*Math.PI/180*R;return[dx,dy]}
+
+function pin(x,s){
+  const cx=s/2,cy=s/2,r=s/12;
+  x.fillStyle='#1a73e8';x.strokeStyle='#fff';x.lineWidth=s/60;
+  x.beginPath();x.arc(cx,cy-r*1.6,r,Math.PI*0.8,Math.PI*0.2);x.lineTo(cx,cy);x.closePath();x.fill();x.stroke();
+  x.fillStyle='#fff';x.beginPath();x.arc(cx,cy-r*1.6,r*.4,0,7);x.fill();
+}
+function drawMap(c,size){
+  const x=c.getContext('2d'),s=size;
+  if(pos&&tileCache){
+    const[wx,wy]=worldPx(pos.lat,pos.lon,Z),V=200;
+    x.drawImage(tileCache.c,wx-tileCache.ox-V/2,wy-tileCache.oy-V/2,V,V,0,0,s,s);
+    pin(x,s);
+    x.fillStyle='rgba(255,255,255,.85)';x.font=Math.round(s/13)+'px sans-serif';
+    x.fillText(style==='sat'?'Esri':'© OSM',s*.04,s*.96);
+    return;
+  }
+  x.fillStyle='#e8efe6';x.fillRect(0,0,s,s);
+  const half=100,k=s/(half*2);
+  x.strokeStyle='rgba(60,90,60,.35)';x.lineWidth=1;
+  for(let m=-100;m<=100;m+=50){const p=s/2+m*k;x.beginPath();x.moveTo(p,0);x.lineTo(p,s);x.moveTo(0,p);x.lineTo(s,p);x.stroke()}
+  if(pos){
+    x.strokeStyle='#1a73e8';x.lineWidth=Math.max(2,s/40);x.lineJoin='round';x.beginPath();
+    track.forEach((t,i)=>{const[dx,dy]=offset(pos,t);const px=s/2+dx*k,py=s/2-dy*k;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke();
+    if(pos.acc){x.fillStyle='rgba(26,115,232,.15)';x.beginPath();x.arc(s/2,s/2,Math.min(s/2,pos.acc*k),0,7);x.fill()}
+  }
+  x.fillStyle='#d93025';x.beginPath();x.arc(s/2,s/2,s/16,0,7);x.fill();
+  x.strokeStyle='#fff';x.lineWidth=s/50;x.stroke();
+  x.fillStyle='#222';x.font='bold '+(s/9)+'px sans-serif';x.fillText('U',s/2-s/32,s/8);
+}
+
+function lines(){
+  const out=[];const note=$('note').value.trim();
+  if(note)out.push(note);
+  if(pos){
+    out.push(addr||'Mencari nama jalan…');
+    out.push(Math.abs(pos.lat).toFixed(6)+'°'+(pos.lat>=0?'N':'S')+', '+Math.abs(pos.lon).toFixed(6)+'°'+(pos.lon>=0?'E':'W')+(locManual?'':' ±'+Math.round(pos.acc)+' m'));
+  }else out.push('Lokasi belum tersedia');
+  out.push(new Date(Date.now()+timeOffset).toLocaleString('id-ID',{dateStyle:'full',timeStyle:'medium'}));
+  const mm=[locManual&&'lokasi',timeOffset!==0&&'waktu'].filter(Boolean);
+  if(mm.length)out.push('Diubah manual: '+mm.join(' & '));
+  return out;
+}
+function refresh(){
+  const l=lines();
+  $('stxt').innerHTML='<b>'+esc(l[0])+'</b>'+l.slice(1).map(t=>'<br>'+esc(t)).join('');
+  drawMap($('mini'),168);
+}
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function onPos(p){
+  const c=p.coords;
+  gpsRaw=p;
+  if(locManual)return;
+  pos={lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude,spd:c.speed,hdg:c.heading};
+  const last=track[track.length-1];
+  if(!last||Math.hypot(...offset(last,pos))>3){track.push({lat:pos.lat,lon:pos.lon});if(track.length>60)track.shift()}
+  $('lat').textContent=pos.lat.toFixed(6);$('lon').textContent=pos.lon.toFixed(6);
+  $('acc').textContent='±'+Math.round(pos.acc)+' m';
+  $('alt').textContent=pos.alt!=null?Math.round(pos.alt)+' m':'–';
+  $('spd').textContent=pos.spd!=null?(pos.spd*3.6).toFixed(1)+' km/j':'–';
+  $('hdg').textContent=pos.hdg!=null&&!isNaN(pos.hdg)?Math.round(pos.hdg)+'°':'–';
+  refresh();loadTiles().then(refresh);geocode();
+}
+function startGPS(){
+  if(!navigator.geolocation){$('stxt').textContent='GPS tidak didukung';return}
+  navigator.geolocation.watchPosition(onPos,e=>{$('stxt').textContent='GPS ditolak/tidak tersedia. Izinkan akses lokasi.'},{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+}
+
+function stampOn(img,w,h){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const x=c.getContext('2d');x.drawImage(img,0,0,w,h);
+  const u=w/400,ph=Math.round(110*u);
+  const g=x.createLinearGradient(0,h-ph-20*u,0,h);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.75)');
+  x.fillStyle=g;x.fillRect(0,h-ph-20*u,w,ph+20*u);
+  const ms=Math.round(92*u),m=document.createElement('canvas');m.width=m.height=ms*2;drawMap(m,ms*2);
+  const mx=10*u,my=h-ms-10*u;
+  x.drawImage(m,mx,my,ms,ms);x.strokeStyle='rgba(255,255,255,.7)';x.lineWidth=u;x.strokeRect(mx,my,ms,ms);
+  const l=lines();x.fillStyle='#fff';x.textBaseline='top';
+  let ty=my,tx=mx+ms+10*u;
+  l.forEach((s,i)=>{x.font=(i===0?'bold ':'')+Math.round((i===0?14:11)*u)+'px sans-serif';x.fillText(s,tx,ty,w-tx-8*u);ty+=(i===0?18:15)*u});
+  return c;
+}
+function add(c){
+  const url=c.toDataURL('image/jpeg',.9);
+  photos.unshift(url);renderGal();
+  if($('auto').checked)autoSave(c);
+  const cap=lines().join('\n');caps.unshift(cap);
+  if($('tgauto').checked)c.toBlob(b=>{if(b)tgEnqueue(b,cap)},'image/jpeg',.9);
+}
+function renderGal(){
+  $('cnt').textContent='('+photos.length+')';
+  $('gal').innerHTML='';
+  photos.forEach((u,idx)=>{const i=new Image();i.src=u;i.onclick=()=>{cur=idx;$('big').src=u;$('dlg').showModal()};$('gal').appendChild(i)});
+}
+$('snap').onclick=()=>{
+  if(!v.videoWidth)return;
+  add(stampOn(v,v.videoWidth,v.videoHeight));fx();
+  if(navigator.vibrate)navigator.vibrate(30);
+};
+$('fallback').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const i=new Image();i.onload=()=>{add(stampOn(i,i.naturalWidth,i.naturalHeight))};i.src=URL.createObjectURL(f);e.target.value='';
+};
+$('flip').onclick=()=>{facing=facing==='environment'?'user':'environment';startCam()};
+$('close').onclick=()=>$('dlg').close();
+$('share').onclick=async()=>{
+  try{
+    const b=await (await fetch($('big').src)).blob();
+    const f=new File([b],'gps-foto-'+Date.now()+'.jpg',{type:'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[f]}))await navigator.share({files:[f]});
+    else alert('Bagikan tidak didukung. Tekan lama pada foto untuk menyimpan.');
+  }catch(e){}
+};
+$('note').oninput=refresh;
+setInterval(refresh,1000);
+const Z=17,TS=256;
+let style='sat',tileCache=null,addr='',lastG=null,gBusy=false;
+const SRC={sat:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,osm:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`};
+function worldPx(lat,lon,z){const n=256*2**z,sn=Math.sin(lat*Math.PI/180);return[(lon+180)/360*n,(0.5-Math.log((1+sn)/(1-sn))/(4*Math.PI))*n]}
+async function loadTiles(){
+  if(!pos)return;
+  const[wx,wy]=worldPx(pos.lat,pos.lon,Z),tx=Math.floor(wx/TS),ty=Math.floor(wy/TS),key=style+tx+','+ty;
+  if(tileCache&&tileCache.key===key)return;
+  const c=document.createElement('canvas');c.width=c.height=TS*3;const x=c.getContext('2d'),jobs=[];
+  for(let i=-1;i<=1;i++)for(let j=-1;j<=1;j++)jobs.push(new Promise(res=>{
+    const im=new Image();im.crossOrigin='anonymous';
+    im.onload=()=>{x.drawImage(im,(i+1)*TS,(j+1)*TS);res(true)};im.onerror=()=>res(false);
+    im.src=SRC[style](Z,tx+i,ty+j);
+  }));
+  const r=await Promise.all(jobs);
+  if(r.some(Boolean))tileCache={key,c,ox:(tx-1)*TS,oy:(ty-1)*TS};
+}
+async function geocode(){
+  if(!pos||gBusy)return;
+  if(lastG&&Math.hypot(...offset(lastG,pos))<25)return;
+  gBusy=true;lastG={lat:pos.lat,lon:pos.lon};
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=id&lat=${pos.lat}&lon=${pos.lon}`);
+    const j=await r.json(),a=j.address||{};
+    const place=a.road||a.pedestrian||a.neighbourhood||a.suburb||'';
+    const area=a.city||a.town||a.municipality||a.county||a.city_district||'';
+    addr=[place,area,a.state].filter(Boolean).join(', ')||j.display_name||'';
+    $('addr').textContent=addr||'–';
+  }catch(e){lastG=null}
+  setTimeout(()=>{gBusy=false},5000);refresh();
+}
+$('mapstyle').onclick=()=>{style=style==='sat'?'osm':'sat';tileCache=null;loadTiles().then(refresh)};
+let cur=0;
+$('save').onclick=async()=>{
+  try{
+    const b=await (await fetch(photos[cur])).blob();
+    const f=new File([b],'gps-foto-'+Date.now()+'.jpg',{type:'image/jpeg'});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f]});return}
+    const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();a.remove();
+  }catch(e){}
+};
+$('del').onclick=()=>{if(!confirm('Hapus foto ini?'))return;photos.splice(cur,1);caps.splice(cur,1);$('dlg').close();renderGal()};
+$('delall').onclick=()=>{if(!photos.length)return;if(!confirm('Hapus semua '+photos.length+' foto di galeri aplikasi?'))return;photos=[];caps=[];renderGal()};
+let locManual=false,timeOffset=0,gpsRaw=null,ac=null;
+function click(){
+  try{
+    ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+    if(ac.state==='suspended')ac.resume();
+    const t=ac.currentTime;
+    [[0,.035],[.075,.06]].forEach(([d,len])=>{
+      const n=Math.floor(ac.sampleRate*len),b=ac.createBuffer(1,n,ac.sampleRate),a=b.getChannelData(0);
+      for(let i=0;i<n;i++)a[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);
+      const src=ac.createBufferSource();src.buffer=b;
+      const f=ac.createBiquadFilter();f.type='bandpass';f.frequency.value=2200;f.Q.value=.8;
+      const g=ac.createGain();g.gain.value=.9;
+      src.connect(f);f.connect(g);g.connect(ac.destination);src.start(t+d);
+    });
+  }catch(e){}
+}
+function fx(){
+  if($('snd').checked)click();
+  if($('fx').checked){
+    const f=$('flash'),c=document.querySelector('.cam');
+    f.classList.remove('on');c.classList.remove('shake');void f.offsetWidth;
+    f.classList.add('on');c.classList.add('shake');
+  }
+}
+function setLoc(lat,lon,address){
+  locManual=true;pos={lat,lon,acc:0,alt:null,spd:null,hdg:null};track=[];
+  addr=address||'';lastG=address?{lat,lon}:null;tileCache=null;
+  $('lat').textContent=lat.toFixed(6);$('lon').textContent=lon.toFixed(6);
+  $('acc').textContent='manual';$('alt').textContent='–';$('spd').textContent='–';$('hdg').textContent='–';
+  $('addr').textContent=addr||'Mencari…';
+  refresh();loadTiles().then(refresh);
+  if(!address){gBusy=false;geocode()}
+}
+$('mloc').onclick=()=>{
+  let a=$('mlat').value.trim(),b=$('mlon').value.trim();
+  if(a.includes(',')&&!b){[a,b]=a.split(',');$('mlat').value=a.trim();$('mlon').value=b.trim()}
+  const lat=parseFloat(String(a).replace(',','.')),lon=parseFloat(String(b).replace(',','.'));
+  if(isNaN(lat)||isNaN(lon)||Math.abs(lat)>90||Math.abs(lon)>180){alert('Koordinat tidak valid. Contoh: 1.111732 dan 104.036740');return}
+  setLoc(lat,lon,$('maddr').value.trim());
+};
+$('qgo').onclick=async()=>{
+  const q=$('q').value.trim();if(!q)return;
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=id&q='+encodeURIComponent(q));
+    const j=await r.json();
+    if(!j.length){alert('Tempat tidak ditemukan');return}
+    const lat=+j[0].lat,lon=+j[0].lon,nm=j[0].display_name.split(', ').slice(0,3).join(', ');
+    $('mlat').value=lat.toFixed(6);$('mlon').value=lon.toFixed(6);$('maddr').value=nm;
+    setLoc(lat,lon,nm);
+  }catch(e){alert('Pencarian gagal. Periksa koneksi internet.')}
+};
+$('mgps').onclick=()=>{
+  locManual=false;addr='';lastG=null;tileCache=null;$('addr').textContent='–';
+  if(gpsRaw)onPos(gpsRaw);else{pos=null;refresh()}
+};
+const loc=d=>{const p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())};
+$('mtime').value=loc(new Date());
+$('mt').onclick=()=>{const d=new Date($('mtime').value);if(isNaN(d)){alert('Isi tanggal dan waktu terlebih dahulu');return}timeOffset=d-Date.now();refresh()};
+$('mtreset').onclick=()=>{timeOffset=0;$('mtime').value=loc(new Date());refresh()};
+function autoSave(c){
+  c.toBlob(async b=>{
+    if(!b)return;
+    try{
+      const f=new File([b],'gps-foto-'+Date.now()+'.jpg',{type:'image/jpeg'});
+      if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f]});return}
+      const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();a.remove();
+    }catch(e){}
+  },'image/jpeg',.9);
+}
+let caps=[],tgQ=[],flushing=false;
+const LS={get(k){try{return localStorage.getItem(k)||''}catch(e){return ''}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+['tgtoken','tgchat'].forEach(id=>{$(id).value=LS.get(id);$(id).oninput=()=>LS.set(id,$(id).value.trim())});
+['tgauto','tgdoc'].forEach(id=>{$(id).checked=LS.get(id)==='1';$(id).onchange=()=>LS.set(id,$(id).checked?'1':'0')});
+const tgStatus=t=>{$('tgst').textContent=t};
+async function tgSend(blob,cap){
+  const tok=$('tgtoken').value.trim(),chat=$('tgchat').value.trim();
+  if(!tok||!chat){tgStatus('Isi token bot dan Chat ID terlebih dahulu.');return 'fatal'}
+  const doc=$('tgdoc').checked,fd=new FormData();
+  fd.append('chat_id',chat);fd.append('caption',cap.slice(0,1000));
+  fd.append(doc?'document':'photo',blob,'gps-foto-'+Date.now()+'.jpg');
+  try{
+    const r=await fetch('https://api.telegram.org/bot'+tok+'/'+(doc?'sendDocument':'sendPhoto'),{method:'POST',body:fd});
+    const j=await r.json();
+    if(j.ok){tgStatus('✅ Terkirim '+new Date().toLocaleTimeString('id-ID'));return true}
+    tgStatus('Gagal: '+(j.description||r.status));
+    return (j.error_code>=400&&j.error_code<500&&j.error_code!==429)?'fatal':false;
+  }catch(e){tgStatus('Gagal kirim (offline?). Foto masuk antrean.');return false}
+}
+function tgEnqueue(b,cap){tgQ.push({b,cap});flushQ()}
+async function flushQ(){
+  if(flushing)return;flushing=true;
+  while(tgQ.length){
+    const r=await tgSend(tgQ[0].b,tgQ[0].cap);
+    if(r===true||r==='fatal')tgQ.shift();else break;
+  }
+  flushing=false;
+  if(tgQ.length)tgStatus('Menunggu koneksi: '+tgQ.length+' foto dalam antrean.');
+}
+window.addEventListener('online',flushQ);
+$('tgsend').onclick=async()=>{
+  const b=await (await fetch(photos[cur])).blob();
+  const r=await tgSend(b,caps[cur]||'');
+  alert(r===true?'Terkirim ke Telegram':$('tgst').textContent);
+};
+$('tgtest').onclick=async()=>{
+  const tok=$('tgtoken').value.trim(),chat=$('tgchat').value.trim();
+  if(!tok||!chat){tgStatus('Isi token bot dan Chat ID terlebih dahulu.');return}
+  try{
+    const r=await fetch('https://api.telegram.org/bot'+tok+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:chat,text:'✅ GPS Map Camera terhubung.'})});
+    const j=await r.json();tgStatus(j.ok?'✅ Terhubung. Cek pesan di Telegram.':'Gagal: '+(j.description||r.status));
+  }catch(e){tgStatus('Gagal terhubung. Periksa internet.')}
+};
+startCam();startGPS();refresh();
+</script>
+</body>
+</html>
